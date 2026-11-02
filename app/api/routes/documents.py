@@ -7,11 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.schemas.document import (
     BatchDocumentResponse,
+    BulkDocumentDeleteResponse,
     DocumentDeleteResponse,
+    DocumentDeletionFailure,
     DocumentIngestionFailure,
     DocumentResponse,
 )
 from app.services.document_management import (
+    delete_all_documents,
     delete_document,
     get_document,
     list_documents,
@@ -118,6 +121,39 @@ async def get_document_details(
         )
 
     return DocumentResponse.model_validate(document)
+
+
+@router.delete(
+    "",
+    response_model=BulkDocumentDeleteResponse,
+)
+async def remove_all_documents(
+    db: AsyncSession = Depends(get_db),
+) -> BulkDocumentDeleteResponse:
+    """Delete all documents, reporting individual failures."""
+
+    deleted, failed = await delete_all_documents(db)
+
+    return BulkDocumentDeleteResponse(
+        total_documents=len(deleted) + len(failed),
+        deleted_count=len(deleted),
+        deleted=[
+            DocumentDeleteResponse(
+                message="Document deleted successfully.",
+                document_id=document.id,
+                filename=document.filename,
+            )
+            for document in deleted
+        ],
+        failed=[
+            DocumentDeletionFailure(
+                document_id=document.id,
+                filename=document.filename,
+                error="Deletion failed. Check server logs and retry.",
+            )
+            for document, _error in failed
+        ],
+    )
 
 
 @router.delete(

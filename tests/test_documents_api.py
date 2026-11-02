@@ -267,3 +267,97 @@ async def test_delete_document_returns_404_when_missing(monkeypatch):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Document not found."
+
+
+@pytest.mark.asyncio
+async def test_delete_all_documents(monkeypatch):
+    documents = [
+        make_document("first.pdf"),
+        make_document("second.txt"),
+    ]
+
+    mock_delete_all = AsyncMock(return_value=(documents, []))
+    monkeypatch.setattr(
+        documents_route,
+        "delete_all_documents",
+        mock_delete_all,
+    )
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.delete("/documents")
+
+    assert response.status_code == 200
+    result = response.json()
+
+    assert result["total_documents"] == 2
+    assert result["deleted_count"] == 2
+    assert len(result["deleted"]) == 2
+    assert result["failed"] == []
+    assert result["deleted"][0]["filename"] == "first.pdf"
+    assert result["deleted"][1]["filename"] == "second.txt"
+    mock_delete_all.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_all_documents_reports_partial_failure(monkeypatch):
+    deleted = [make_document("first.pdf")]
+    failed = [(make_document("second.txt"), "Qdrant unavailable")]
+
+    mock_delete_all = AsyncMock(return_value=(deleted, failed))
+    monkeypatch.setattr(
+        documents_route,
+        "delete_all_documents",
+        mock_delete_all,
+    )
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.delete("/documents")
+
+    assert response.status_code == 200
+    result = response.json()
+
+    assert result["total_documents"] == 2
+    assert result["deleted_count"] == 1
+    assert len(result["deleted"]) == 1
+    assert len(result["failed"]) == 1
+    assert result["failed"][0]["document_id"] == "id-second.txt"
+    assert result["failed"][0]["filename"] == "second.txt"
+    assert result["failed"][0]["error"] == (
+        "Deletion failed. Check server logs and retry."
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_all_documents_when_empty(monkeypatch):
+    mock_delete_all = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(
+        documents_route,
+        "delete_all_documents",
+        mock_delete_all,
+    )
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.delete("/documents")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "total_documents": 0,
+        "deleted_count": 0,
+        "deleted": [],
+        "failed": [],
+    }

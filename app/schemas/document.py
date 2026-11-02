@@ -30,3 +30,16 @@ class DocumentDeleteResponse(BaseModel):
     message: str
     document_id: str
     filename: str
+
+
+class DocumentDeletionFailure(BaseModel):
+    document_id: str
+    filename: str
+    error: str
+
+
+class BulkDocumentDeleteResponse(BaseModel):
+    total_documents: int
+    deleted_count: int
+    deleted: list[DocumentDeleteResponse]
+    failed: list[DocumentDeletionFailure]

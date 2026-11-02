@@ -1,8 +1,9 @@
+
 # Palm Mind RAG API development commands
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install up down logs api test test-verbose lint format migrate migration-check migration-history check
+.PHONY: help install up down logs api test test-verbose lint format migrate migration-check migration-history check dev dev-stop
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ { printf "  %-20s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -19,8 +20,8 @@ down: ## Stop Qdrant and Redis (keeps persisted data)
 logs: ## Follow Qdrant and Redis logs
 	docker compose logs -f
 
-api: ## Start the FastAPI development server
-	uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+api: ## Start the FastAPI server
+	uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 test: ## Run the complete test suite
 	uv run pytest
@@ -45,8 +46,6 @@ migration-history: ## Display Alembic migration history
 
 check: lint migration-check test ## Run lint, migration consistency, and tests
 
-.PHONY: dev dev-stop
-
 dev: up
 	@echo "Starting Palm Mind LLM..."
 	@if ! docker inspect palmmind-llm >/dev/null 2>&1; then echo "ERROR: palmmind-llm container not found."; exit 1; fi
@@ -56,13 +55,13 @@ dev: up
 	@echo "Applying database migrations..."
 	@uv run alembic upgrade head
 	@echo "Starting FastAPI..."
-	@if ! curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload > /tmp/palmmind-api.log 2>&1 & echo $$! > /tmp/palmmind-api.pid; fi
+	@if ! curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/palmmind-api.log 2>&1 & echo $$! > /tmp/palmmind-api.pid; fi
 	@ready=0; for i in $$(seq 1 30); do if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then ready=1; break; fi; sleep 1; done; if [ $$ready -ne 1 ]; then echo "ERROR: FastAPI failed to start. Check /tmp/palmmind-api.log"; exit 1; fi
 	@echo "Opening Palm Mind API documentation..."
 	@cmd.exe /c start "" "http://127.0.0.1:8000/docs"
 	@echo "Palm Mind is ready!"
 
-dev-stop: 
+dev-stop:
 	@if [ -f /tmp/palmmind-api.pid ]; then kill $$(cat /tmp/palmmind-api.pid) 2>/dev/null || true; rm -f /tmp/palmmind-api.pid; fi
 	@docker compose down
 	@echo "Palm Mind development services stopped."

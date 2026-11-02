@@ -92,3 +92,31 @@ async def delete_document(
         )
 
     return document
+
+
+async def delete_all_documents(
+    db: AsyncSession,
+) -> tuple[list[Document], list[tuple[Document, str]]]:
+    """Delete all documents independently, preserving failures for retry."""
+
+    documents = await list_documents(db)
+    deleted: list[Document] = []
+    failed: list[tuple[Document, str]] = []
+
+    for document in documents:
+        try:
+            result = await delete_document(document.id, db)
+
+            if result is not None:
+                deleted.append(result)
+
+        except Exception as exc:
+            logger.exception(
+                "Failed to delete document %s (%s)",
+                document.id,
+                document.filename,
+            )
+            await db.rollback()
+            failed.append((document, str(exc)))
+
+    return deleted, failed
