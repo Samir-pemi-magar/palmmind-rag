@@ -6,7 +6,8 @@ Upload PDF or TXT documents, ask questions about them in a multi-turn chat, and 
 
 ## Features
 
-- **Document ingestion**: upload PDF or TXT files (up to 20 MB), extract text, chunk it, embed it, and store it for search.
+- **Document ingestion**: upload one or more PDF or TXT files (up to 20 MB each) in a single request, extract text, chunk it, embed it, and store it for search. A bad file does not stop the others.
+- **Document management**: list uploaded documents, look one up by ID, or delete it. Deleting removes its vectors from Qdrant, its database record, and the stored file.
 - **Two chunking strategies**: `fixed` (character windows with overlap) and `recursive` (splits on paragraph, line, and sentence boundaries where possible).
 - **Conversational RAG**: follow-up questions are rewritten into standalone search queries, relevant chunks are retrieved from Qdrant, and a local LLM answers using only that context. Every answer includes its sources.
 - **Conversation memory**: the last 10 messages of each conversation are kept in Redis for 24 hours.
@@ -57,13 +58,14 @@ Booking messages are checked first. Anything that is not booking-related falls t
 ```
 app/
   main.py                  FastAPI app and lifespan (creates the Qdrant collection)
-  api/routes/              HTTP endpoints (documents, chat)
+  api/routes/              HTTP endpoints (documents, chat, health)
   core/                    Config, database, Qdrant, Redis, embeddings, LLM client
   models/                  SQLAlchemy models (Document, InterviewBooking)
   schemas/                 Pydantic request and response models
   repositories/            Database access (bookings)
   services/
     ingestion.py           Upload-to-index pipeline
+    document_management.py List, fetch, and delete documents
     document_storage.py    File validation and saving
     document_extractor.py  PDF and TXT text extraction
     chunking.py            Fixed and recursive chunking
@@ -122,6 +124,12 @@ make api
 
 The API is served at `http://127.0.0.1:8000`, with interactive docs at `http://127.0.0.1:8000/docs`.
 
+### Shortcut: `make dev`
+
+`make dev` does steps 3 to 5 in one command. It starts Qdrant and Redis, starts an existing Docker container named `palmmind-llm`, waits for the LLM server on port 3000, applies migrations, starts the API in the background, and opens the docs page. Stop everything with `make dev-stop`.
+
+This shortcut is tied to the author's setup: it expects the `palmmind-llm` container to already exist and uses `cmd.exe` to open the browser, so it works as-is on WSL only. On other systems, use the manual steps above.
+
 ## Configuration
 
 All settings are read from environment variables or `.env`.
@@ -151,35 +159,69 @@ All settings are read from environment variables or `.env`.
 
 Returns the application status.
 
-### `POST /documents/ingest`
+### `POST /documents`
 
-Upload and index a document. Sent as `multipart/form-data`.
+Upload and index one or more documents. Sent as `multipart/form-data`.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `upload` | file | A `.pdf` or `.txt` file, up to 20 MB |
-| `strategy` | string | `fixed` or `recursive` |
+| `uploads` | file (repeatable) | One or more `.pdf` or `.txt` files, up to 20 MB each |
+| `strategy` | string | `fixed` or `recursive`, applied to every file in the request |
 
 ```bash
-curl -X POST http://127.0.0.1:8000/documents/ingest \
-  -F "upload=@handbook.pdf" \
+curl -X POST http://127.0.0.1:8000/documents \
+  -F "uploads=@handbook.pdf" \
+  -F "uploads=@faq.txt" \
   -F "strategy=recursive"
 ```
 
-Response (`201`):
+Response (`200`):
 
 ```json
 {
-  "id": "0b6f6c9e-6c3a-4a1e-9d57-2f3f6f0a1c11",
-  "filename": "handbook.pdf",
-  "status": "completed",
-  "chunking_strategy": "recursive",
-  "total_chunks": 42,
-  "created_at": "2026-11-02T10:15:00Z"
+  "total_files": 2,
+  "successful": [
+    {
+      "id": "0b6f6c9e-6c3a-4a1e-9d57-2f3f6f0a1c11",
+      "filename": "handbook.pdf",
+      "status": "completed",
+      "chunking_strategy": "recursive",
+      "total_chunks": 42,
+      "created_at": "2026-11-02T10:15:00Z"
+    }
+  ],
+  "failed": [
+    {
+      "filename": "faq.txt",
+      "error": "Uploaded file is empty."
+    }
+  ]
 }
 ```
 
-Returns `400` for unsupported file types, empty files, files over 20 MB, or documents with no extractable text.
+Files are processed one at a time. A file that fails (unsupported type, empty, too large, no extractable text) is reported in `failed` and the remaining files are still ingested, so the request returns `200` even when some files fail. A missing `uploads` field or an invalid `strategy` returns `422`.
+
+### `GET /documents`
+
+Returns all uploaded documents, newest first, as a list of the same document objects shown above.
+
+### `GET /documents/{document_id}`
+
+Returns one document. Responds with `404` if the ID does not exist.
+
+### `DELETE /documents/{document_id}`
+
+Deletes a document: its vectors in Qdrant, its database record, and the original file in the upload directory. Responds with `404` if the ID does not exist.
+
+```json
+{
+  "message": "Document deleted successfully.",
+  "document_id": "0b6f6c9e-6c3a-4a1e-9d57-2f3f6f0a1c11",
+  "filename": "handbook.pdf"
+}
+```
+
+Vectors are removed first, so if Qdrant is unavailable the database record and file are left untouched and the delete can be retried. The file is only removed if it sits inside the upload directory.
 
 ### `POST /chat`
 
@@ -243,6 +285,8 @@ In-progress booking details live in Redis for 24 hours and are only written to t
 | `make check` | Run lint, migration check, and tests |
 | `make logs` | Follow Qdrant and Redis logs |
 | `make down` | Stop Qdrant and Redis (data is kept) |
+| `make dev` | Start everything and open the API docs (WSL, see above) |
+| `make dev-stop` | Stop the API, Qdrant, and Redis |
 
 To create a new migration after changing a model:
 
@@ -253,5 +297,6 @@ uv run alembic revision --autogenerate -m "describe the change"
 ## Notes
 
 - Only PDF and TXT files are supported. Scanned PDFs without a text layer will be rejected.
-- Embeddings run on CPU. The first request after startup is slower while the model loads.
+- Embeddings run on CPU. The embedding model and PDF extractor are loaded on first use, so the API starts quickly but the first upload or chat after startup is slower.
+- Chat and retrieval can be limited to one document by passing its `document_id`. Deleting a document removes it from future answers immediately.
 - Retrieved document text is treated as untrusted data, and the assistant is instructed not to follow instructions found inside documents.
