@@ -24,32 +24,7 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 
 
 @router.post(
-    "/ingest",
-    response_model=DocumentResponse,
-    status_code=201,
-)
-async def upload_document(
-    upload: UploadFile = File(...),
-    strategy: Literal["fixed", "recursive"] = Form(...),
-    db: AsyncSession = Depends(get_db),
-) -> DocumentResponse:
-    try:
-        document = await ingest_document(
-            upload=upload,
-            strategy=strategy,
-            db=db,
-        )
-        return DocumentResponse.model_validate(document)
-
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
-
-
-@router.post(
-    "/ingest/batch",
+    "",
     response_model=BatchDocumentResponse,
     status_code=200,
 )
@@ -58,6 +33,8 @@ async def upload_documents(
     strategy: Literal["fixed", "recursive"] = Form(...),
     db: AsyncSession = Depends(get_db),
 ) -> BatchDocumentResponse:
+    """Upload and ingest one or more PDF/TXT documents."""
+
     if not uploads:
         raise HTTPException(
             status_code=400,

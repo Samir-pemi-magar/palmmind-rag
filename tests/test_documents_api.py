@@ -21,7 +21,7 @@ def make_document(filename: str):
 
 
 @pytest.mark.asyncio
-async def test_batch_upload_processes_multiple_files(monkeypatch):
+async def test_upload_endpoint_processes_multiple_files(monkeypatch):
     mock_ingest = AsyncMock(
         side_effect=[
             make_document("first.txt"),
@@ -37,7 +37,7 @@ async def test_batch_upload_processes_multiple_files(monkeypatch):
         base_url="http://test",
     ) as client:
         response = await client.post(
-            "/documents/ingest/batch",
+            "/documents",
             data={"strategy": "recursive"},
             files=[
                 ("uploads", ("first.txt", b"First document", "text/plain")),
@@ -57,7 +57,7 @@ async def test_batch_upload_processes_multiple_files(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_batch_upload_continues_after_file_failure(monkeypatch):
+async def test_upload_endpoint_continues_after_file_failure(monkeypatch):
     mock_ingest = AsyncMock(
         side_effect=[
             ValueError("Unsupported file type."),
@@ -73,7 +73,7 @@ async def test_batch_upload_continues_after_file_failure(monkeypatch):
         base_url="http://test",
     ) as client:
         response = await client.post(
-            "/documents/ingest/batch",
+            "/documents",
             data={"strategy": "fixed"},
             files=[
                 ("uploads", ("bad.exe", b"Invalid file", "application/octet-stream")),
@@ -96,7 +96,7 @@ async def test_batch_upload_continues_after_file_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_batch_upload_records_unexpected_failure(monkeypatch):
+async def test_upload_endpoint_records_unexpected_failure(monkeypatch):
     mock_ingest = AsyncMock(side_effect=RuntimeError("Database connection details"))
     monkeypatch.setattr(documents_route, "ingest_document", mock_ingest)
 
@@ -107,7 +107,7 @@ async def test_batch_upload_records_unexpected_failure(monkeypatch):
         base_url="http://test",
     ) as client:
         response = await client.post(
-            "/documents/ingest/batch",
+            "/documents",
             data={"strategy": "fixed"},
             files=[
                 ("uploads", ("document.txt", b"Document", "text/plain")),
@@ -124,7 +124,7 @@ async def test_batch_upload_records_unexpected_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_single_document_endpoint_remains_compatible(monkeypatch):
+async def test_upload_endpoint_processes_single_file(monkeypatch):
     mock_ingest = AsyncMock(return_value=make_document("single.txt"))
     monkeypatch.setattr(documents_route, "ingest_document", mock_ingest)
 
@@ -135,21 +135,25 @@ async def test_single_document_endpoint_remains_compatible(monkeypatch):
         base_url="http://test",
     ) as client:
         response = await client.post(
-            "/documents/ingest",
+            "/documents",
             data={"strategy": "fixed"},
-            files={
-                "upload": ("single.txt", b"Single document", "text/plain"),
-            },
+            files=[
+                ("uploads", ("single.txt", b"Single document", "text/plain")),
+            ],
         )
 
-    assert response.status_code == 201
-    assert response.json()["filename"] == "single.txt"
-    assert response.json()["chunking_strategy"] == "recursive"
+    assert response.status_code == 200
+    result = response.json()
+    assert result["total_files"] == 1
+    assert len(result["successful"]) == 1
+    assert result["failed"] == []
+    assert result["successful"][0]["filename"] == "single.txt"
+    assert result["successful"][0]["chunking_strategy"] == "recursive"
     mock_ingest.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_batch_upload_requires_files():
+async def test_upload_endpoint_requires_files():
     transport = ASGITransport(app=app)
 
     async with AsyncClient(
@@ -157,7 +161,7 @@ async def test_batch_upload_requires_files():
         base_url="http://test",
     ) as client:
         response = await client.post(
-            "/documents/ingest/batch",
+            "/documents",
             data={"strategy": "fixed"},
         )
 
