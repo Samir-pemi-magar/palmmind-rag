@@ -1,7 +1,6 @@
 from app.core.llm import generate_response
 from app.services.retrieval import retrieve_chunks
 
-
 SYSTEM_PROMPT = """
 You are Palm Mind AI, a document question-answering assistant.
 
@@ -91,8 +90,7 @@ async def generate_rag_answer(
     if not chunks:
         return {
             "answer": (
-                "I couldn't find relevant information "
-                "in the uploaded documents."
+                "I couldn't find relevant information in the uploaded documents."
             ),
             "sources": [],
         }
@@ -104,10 +102,10 @@ async def generate_rag_answer(
         context_parts.append(
             f"""
 Source {index}
-Filename: {chunk['filename']}
-Chunk index: {chunk['chunk_index']}
+Filename: {chunk["filename"]}
+Chunk index: {chunk["chunk_index"]}
 Content:
-{chunk['chunk_text']}
+{chunk["chunk_text"]}
 """
         )
 

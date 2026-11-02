@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     llm_model: str = "Qwen3-8B-Q4_K_M.gguf"
     llm_api_key: str = "not-needed"
 
-    embedding_model_path: str = "/home/acer/models/bge-m3"
+    embedding_model_path: str = "./models/bge-m3"
     embedding_dimension: int = 1024
 
     chunk_size: int = 500

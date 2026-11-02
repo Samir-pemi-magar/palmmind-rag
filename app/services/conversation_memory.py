@@ -2,7 +2,6 @@ import json
 
 from app.core.redis import redis_client
 
-
 CONVERSATION_TTL = 86400  # 24 hours
 MAX_HISTORY_MESSAGES = 10
 
@@ -29,10 +28,7 @@ async def get_conversation_history(
         -1,
     )
 
-    return [
-        json.loads(message)
-        for message in stored_messages
-    ]
+    return [json.loads(message) for message in stored_messages]
 
 
 async def save_conversation_turn(

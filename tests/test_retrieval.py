@@ -70,9 +70,7 @@ async def test_retrieves_and_formats_chunks(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_applies_document_filter(monkeypatch):
-    fake_query = AsyncMock(
-        return_value=SimpleNamespace(points=[])
-    )
+    fake_query = AsyncMock(return_value=SimpleNamespace(points=[]))
 
     monkeypatch.setattr(
         retrieval,

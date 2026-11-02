@@ -127,6 +127,4 @@ def chunk_text(
     if strategy == "recursive":
         return recursive_chunking(text, chunk_size, chunk_overlap)
 
-    raise ValueError(
-        "Unsupported chunking strategy. Choose 'fixed' or 'recursive'."
-    )
+    raise ValueError("Unsupported chunking strategy. Choose 'fixed' or 'recursive'.")

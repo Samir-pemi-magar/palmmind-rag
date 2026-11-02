@@ -5,7 +5,6 @@ from fastapi import UploadFile
 
 from app.core.config import settings
 
-
 ALLOWED_EXTENSIONS = {".pdf", ".txt"}
 MAX_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB
 

@@ -21,9 +21,7 @@ async def test_returns_message_when_no_chunks_found(monkeypatch):
         mock_retrieval,
     )
 
-    result = await rag.generate_rag_answer(
-        question="What is the answer?"
-    )
+    result = await rag.generate_rag_answer(question="What is the answer?")
 
     assert "couldn't find relevant information" in result["answer"]
     assert result["sources"] == []
@@ -43,9 +41,7 @@ async def test_generates_answer_with_retrieved_context(monkeypatch):
     ]
 
     mock_retrieval = AsyncMock(return_value=fake_chunks)
-    mock_llm = AsyncMock(
-        return_value="Qdrant stores the document embeddings."
-    )
+    mock_llm = AsyncMock(return_value="Qdrant stores the document embeddings.")
 
     monkeypatch.setattr(
         rag,
@@ -87,9 +83,7 @@ async def test_rewrites_follow_up_question_using_history(monkeypatch):
         {"role": "assistant", "content": "It uses Qdrant."},
     ]
 
-    mock_llm = AsyncMock(
-        return_value="Why was Qdrant chosen as the vector database?"
-    )
+    mock_llm = AsyncMock(return_value="Why was Qdrant chosen as the vector database?")
 
     monkeypatch.setattr(rag, "generate_response", mock_llm)
 
@@ -137,9 +131,7 @@ async def test_rag_uses_rewritten_query_and_conversation_history(monkeypatch):
         conversation_history=history,
     )
 
-    assert result["answer"] == (
-        "The project uses Qdrant to store document embeddings."
-    )
+    assert result["answer"] == ("The project uses Qdrant to store document embeddings.")
 
     mock_retrieval.assert_awaited_once_with(
         query="Why was Qdrant chosen as the vector database?",

@@ -7,13 +7,12 @@ from qdrant_client import models
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.embeddings import generate_embeddings
 from app.core.qdrant import qdrant_client
 from app.models.document import Document
 from app.services.chunking import chunk_text
 from app.services.document_extractor import extract_text
 from app.services.document_storage import save_uploaded_document
-from app.core.embeddings import generate_embeddings
-
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +70,9 @@ async def ingest_document(
 
         points = []
 
-        for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        for index, (chunk, embedding) in enumerate(
+            zip(chunks, embeddings, strict=True)
+        ):
             point_id = str(uuid4())
             point_ids.append(point_id)
 

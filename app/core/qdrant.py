@@ -2,7 +2,6 @@ from qdrant_client import AsyncQdrantClient, models
 
 from app.core.config import settings
 
-
 qdrant_client = AsyncQdrantClient(
     url=settings.qdrant_url,
 )

@@ -6,6 +6,21 @@ import pytest
 from app.services import chat as chat_service
 
 
+@pytest.fixture(autouse=True)
+def mock_booking_handler(monkeypatch):
+    """Keep chat unit tests independent of the real booking workflow."""
+
+    mock = AsyncMock(return_value=None)
+
+    monkeypatch.setattr(
+        chat_service,
+        "handle_booking_message",
+        mock,
+    )
+
+    return mock
+
+
 @pytest.mark.asyncio
 async def test_creates_new_conversation(monkeypatch):
     mock_history = AsyncMock(return_value=[])
@@ -17,33 +32,16 @@ async def test_creates_new_conversation(monkeypatch):
     )
     mock_save = AsyncMock()
 
-    monkeypatch.setattr(
-        chat_service,
-        "get_conversation_history",
-        mock_history,
-    )
-    monkeypatch.setattr(
-        chat_service,
-        "generate_rag_answer",
-        mock_rag,
-    )
-    monkeypatch.setattr(
-        chat_service,
-        "save_conversation_turn",
-        mock_save,
-    )
+    monkeypatch.setattr(chat_service, "get_conversation_history", mock_history)
+    monkeypatch.setattr(chat_service, "generate_rag_answer", mock_rag)
+    monkeypatch.setattr(chat_service, "save_conversation_turn", mock_save)
 
-    result = await chat_service.chat(
-        message="Where are the embeddings stored?"
-    )
+    result = await chat_service.chat(message="Where are the embeddings stored?")
 
-    # A new valid UUID should be generated.
     UUID(result["conversation_id"])
 
     assert result["answer"] == "Qdrant stores the embeddings."
-    assert result["sources"] == [
-        {"filename": "example.txt", "chunk_index": 0}
-    ]
+    assert result["sources"] == [{"filename": "example.txt", "chunk_index": 0}]
 
     mock_history.assert_awaited_once_with(result["conversation_id"])
 
@@ -78,21 +76,9 @@ async def test_continues_existing_conversation(monkeypatch):
     )
     mock_save = AsyncMock()
 
-    monkeypatch.setattr(
-        chat_service,
-        "get_conversation_history",
-        mock_history,
-    )
-    monkeypatch.setattr(
-        chat_service,
-        "generate_rag_answer",
-        mock_rag,
-    )
-    monkeypatch.setattr(
-        chat_service,
-        "save_conversation_turn",
-        mock_save,
-    )
+    monkeypatch.setattr(chat_service, "get_conversation_history", mock_history)
+    monkeypatch.setattr(chat_service, "generate_rag_answer", mock_rag)
+    monkeypatch.setattr(chat_service, "save_conversation_turn", mock_save)
 
     result = await chat_service.chat(
         message="Why did they choose it?",
@@ -115,6 +101,82 @@ async def test_continues_existing_conversation(monkeypatch):
         user_message="Why did they choose it?",
         assistant_message="It was selected for vector similarity search.",
     )
+
+
+@pytest.mark.asyncio
+async def test_booking_request_skips_rag(
+    monkeypatch,
+    mock_booking_handler,
+):
+    conversation_id = "booking-conversation-123"
+
+    booking_result = {
+        "answer": "What is your full name?",
+        "sources": [],
+    }
+
+    mock_booking_handler.return_value = booking_result
+    mock_history = AsyncMock(return_value=[])
+    mock_rag = AsyncMock()
+    mock_save = AsyncMock()
+
+    monkeypatch.setattr(chat_service, "get_conversation_history", mock_history)
+    monkeypatch.setattr(chat_service, "generate_rag_answer", mock_rag)
+    monkeypatch.setattr(chat_service, "save_conversation_turn", mock_save)
+
+    result = await chat_service.chat(
+        message="I want to book an interview.",
+        conversation_id=conversation_id,
+    )
+
+    assert result == {
+        "conversation_id": conversation_id,
+        "answer": "What is your full name?",
+        "sources": [],
+    }
+
+    mock_booking_handler.assert_awaited_once_with(
+        message="I want to book an interview.",
+        conversation_id=conversation_id,
+    )
+
+    mock_rag.assert_not_awaited()
+
+    mock_save.assert_awaited_once_with(
+        conversation_id=conversation_id,
+        user_message="I want to book an interview.",
+        assistant_message="What is your full name?",
+    )
+
+
+@pytest.mark.asyncio
+async def test_unrelated_question_continues_to_rag(
+    monkeypatch,
+    mock_booking_handler,
+):
+    mock_history = AsyncMock(return_value=[])
+    mock_rag = AsyncMock(
+        return_value={
+            "answer": "A vector database stores vector embeddings.",
+            "sources": [],
+        }
+    )
+    mock_save = AsyncMock()
+
+    monkeypatch.setattr(chat_service, "get_conversation_history", mock_history)
+    monkeypatch.setattr(chat_service, "generate_rag_answer", mock_rag)
+    monkeypatch.setattr(chat_service, "save_conversation_turn", mock_save)
+
+    result = await chat_service.chat(
+        message="What is a vector database?",
+        conversation_id="normal-chat-123",
+    )
+
+    assert result["answer"] == "A vector database stores vector embeddings."
+
+    mock_booking_handler.assert_awaited_once()
+    mock_rag.assert_awaited_once()
+    mock_save.assert_awaited_once()
 
 
 @pytest.mark.asyncio

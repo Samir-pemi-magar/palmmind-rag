@@ -31,9 +31,7 @@ def extract_text(file_path: str | Path) -> str:
         extracted_text = path.read_text(encoding="utf-8-sig")
 
     else:
-        raise ValueError(
-            f"Unsupported document format: {extension}"
-        )
+        raise ValueError(f"Unsupported document format: {extension}")
 
     extracted_text = extracted_text.strip()
 

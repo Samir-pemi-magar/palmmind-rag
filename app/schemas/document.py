@@ -13,3 +13,14 @@ class DocumentResponse(BaseModel):
     chunking_strategy: Literal["fixed", "recursive"]
     total_chunks: int
     created_at: datetime
+
+
+class DocumentIngestionFailure(BaseModel):
+    filename: str
+    error: str
+
+
+class BatchDocumentResponse(BaseModel):
+    total_files: int
+    successful: list[DocumentResponse]
+    failed: list[DocumentIngestionFailure]

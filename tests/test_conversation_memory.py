@@ -1,5 +1,5 @@
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -34,7 +34,12 @@ class FakePipeline:
 async def test_gets_conversation_history(monkeypatch):
     stored_messages = [
         json.dumps({"role": "user", "content": "What is RAG?"}),
-        json.dumps({"role": "assistant", "content": "RAG combines retrieval and generation."}),
+        json.dumps(
+            {
+                "role": "assistant",
+                "content": "RAG combines retrieval and generation.",
+            }
+        ),
     ]
 
     mock_lrange = AsyncMock(return_value=stored_messages)

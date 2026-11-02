@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.openapi.utils import get_openapi
 
 from app.api.routes.chat import router as chat_router
 from app.api.routes.documents import router as documents_router
@@ -31,6 +32,32 @@ app = FastAPI(
 
 app.include_router(documents_router)
 app.include_router(chat_router)
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        routes=app.routes,
+        openapi_version="3.0.3",
+    )
+
+    batch_schema = openapi_schema["components"]["schemas"][
+        "Body_upload_documents_documents_ingest_batch_post"
+    ]
+
+    upload_items = batch_schema["properties"]["uploads"]["items"]
+
+    upload_items.pop("contentMediaType", None)
+    upload_items["format"] = "binary"
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 
 @app.get("/health", tags=["Health"])

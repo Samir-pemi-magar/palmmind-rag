@@ -34,3 +34,8 @@ tmp/
 temp/
 
 data/
+
+# Local AI models and model weights
+models/
+*.gguf
+*.safetensors

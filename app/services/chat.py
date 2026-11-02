@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from app.services.booking import handle_booking_message
 from app.services.conversation_memory import (
     get_conversation_history,
     save_conversation_turn,
@@ -13,10 +14,10 @@ async def chat(
     document_id: str | None = None,
 ) -> dict:
     """
-    Handle one conversational RAG request.
+    Handle conversational RAG and interview booking requests.
 
-    Creates a conversation ID when one is not supplied.
-    Loads previous messages, generates an answer, and saves the exchange.
+    Booking messages are processed first. Messages that are not
+    booking-related continue through the normal RAG pipeline.
     """
 
     message = message.strip()
@@ -33,23 +34,32 @@ async def chat(
     # Step 2: Load previous conversation messages from Redis.
     history = await get_conversation_history(conversation_id)
 
-    # Step 3: Generate a response using conversational RAG.
-    result = await generate_rag_answer(
-        question=message,
-        document_id=document_id,
-        conversation_history=history,
+    # Step 3: Check whether this message belongs to interview booking.
+    booking_result = await handle_booking_message(
+        message=message,
+        conversation_id=conversation_id,
     )
+
+    if booking_result is not None:
+        result = booking_result
+    else:
+        # Step 4: If not a booking request, use conversational RAG.
+        result = await generate_rag_answer(
+            question=message,
+            document_id=document_id,
+            conversation_history=history,
+        )
 
     answer = result["answer"]
 
-    # Step 4: Save this exchange for future follow-up questions.
+    # Step 5: Save both booking and RAG exchanges in conversation history.
     await save_conversation_turn(
         conversation_id=conversation_id,
         user_message=message,
         assistant_message=answer,
     )
 
-    # Step 5: Return the response and conversation identifier.
+    # Step 6: Return the response and conversation identifier.
     return {
         "conversation_id": conversation_id,
         "answer": answer,
