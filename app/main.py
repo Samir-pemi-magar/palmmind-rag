@@ -45,7 +45,7 @@ def custom_openapi():
     )
 
     batch_schema = openapi_schema["components"]["schemas"][
-        "Body_upload_documents_documents_ingest_batch_post"
+        "Body_upload_documents_documents_post"
     ]
 
     upload_items = batch_schema["properties"]["uploads"]["items"]
