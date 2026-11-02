@@ -32,9 +32,14 @@ class InterviewBooking(Base):
         nullable=False,
     )
 
+    timezone: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
     status: Mapped[str] = mapped_column(
         String(30),
-        default="confirmed",
+        default="pending",
         nullable=False,
     )
 

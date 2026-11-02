@@ -36,14 +36,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-# Create database tables registered with SQLAlchemy.
-async def create_db_and_tables() -> None:
-    import app.models  # Register models with SQLAlchemy metadata.
-
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-
-
 # Dispose of database connections when the application shuts down.
 async def close_db() -> None:
     await engine.dispose()
