@@ -7,7 +7,7 @@ Upload PDF or TXT documents, ask questions about them in a multi-turn chat, and 
 ## Features
 
 - **Document ingestion**: upload one or more PDF or TXT files (up to 20 MB each) in a single request, extract text, chunk it, embed it, and store it for search. A bad file does not stop the others.
-- **Document management**: list uploaded documents, look one up by ID, or delete it. Deleting removes its vectors from Qdrant, its database record, and the stored file.
+- **Document management**: list uploaded documents, look one up by ID, delete one, or delete all of them at once. Bulk deletion processes each document independently and reports any partial failures. Deleting removes a document's vectors from Qdrant, its database record, and the stored file.
 - **Two chunking strategies**: `fixed` (character windows with overlap) and `recursive` (splits on paragraph, line, and sentence boundaries where possible).
 - **Conversational RAG**: follow-up questions are rewritten into standalone search queries, relevant chunks are retrieved from Qdrant, and a local LLM answers using only that context. Every answer includes its sources.
 - **Conversation memory**: the last 10 messages of each conversation are kept in Redis for 24 hours.
@@ -57,27 +57,39 @@ Booking messages are checked first. Anything that is not booking-related falls t
 
 ```
 app/
-  main.py                  FastAPI app and lifespan (creates the Qdrant collection)
-  api/routes/              HTTP endpoints (documents, chat, health)
-  core/                    Config, database, Qdrant, Redis, embeddings, LLM client
-  models/                  SQLAlchemy models (Document, InterviewBooking)
-  schemas/                 Pydantic request and response models
-  repositories/            Database access (bookings)
+  main.py                    FastAPI app and lifespan (creates the Qdrant collection)
+  api/routes/                HTTP endpoints (documents, chat, health)
+  core/
+    config.py                Settings loaded from environment variables
+    database.py              Async SQLAlchemy engine and session
+    qdrant.py                Qdrant client
+    redis.py                 Redis client
+    embeddings.py            BGE-M3 embedding model
+    llm.py                   OpenAI-compatible LLM client
+  models/
+    document.py              Document metadata table
+    booking.py               Interview booking table
+  schemas/                   Pydantic request and response models
+  repositories/
+    booking.py               Booking database access
   services/
-    ingestion.py           Upload-to-index pipeline
-    document_management.py List, fetch, and delete documents
-    document_storage.py    File validation and saving
-    document_extractor.py  PDF and TXT text extraction
-    chunking.py            Fixed and recursive chunking
-    retrieval.py           Vector search with optional document filter
-    rag.py                 Query rewriting, prompt building, answer generation
-    chat.py                Chat orchestration (booking first, then RAG)
-    conversation_memory.py Redis chat history
-    booking*.py            Booking flow, extraction, validation, Redis state
-migrations/                Alembic migrations
-tests/                     Test suite
-compose.yaml               Qdrant and Redis
-Makefile                   Common development commands
+    ingestion.py             Upload-to-index pipeline
+    document_storage.py      File validation and saving
+    document_extractor.py    PDF and TXT text extraction
+    document_management.py   List, fetch, delete one, and delete all documents
+    chunking.py              Fixed and recursive chunking
+    retrieval.py             Vector search with optional document filter
+    rag.py                   Query rewriting, prompt building, answer generation
+    chat.py                  Chat orchestration (booking first, then RAG)
+    conversation_memory.py   Redis chat history
+    booking.py               Booking flow and confirmation handling
+    booking_extractor.py     LLM extraction of booking intent and details
+    booking_validation.py    Email, timezone, and date/time validation
+    booking_memory.py        In-progress booking state in Redis
+migrations/                  Alembic migrations
+tests/                       Test suite
+compose.yaml                 Qdrant and Redis
+Makefile                     Common development commands
 ```
 
 ## Prerequisites
@@ -85,7 +97,7 @@ Makefile                   Common development commands
 - Python 3.12 or newer
 - [uv](https://docs.astral.sh/uv/)
 - Docker with Docker Compose
-- The BGE-M3 embedding model downloaded locally
+- Internet access for the initial BGE-M3 model download, or a locally available BGE-M3 model
 - An OpenAI-compatible LLM server serving a chat model (the project is configured for Qwen3-8B)
 
 ## Getting started
@@ -102,7 +114,7 @@ make install
 cp .env.example .env
 ```
 
-Edit `.env` and set at least `EMBEDDING_MODEL_PATH` to the folder containing BGE-M3. Check that `LLM_BASE_URL` and `LLM_MODEL` match your LLM server.
+Review `.env` and ensure `EMBEDDING_MODEL_PATH`, `LLM_BASE_URL`, and `LLM_MODEL` match your environment. You can use `BAAI/bge-m3` to load the model from Hugging Face or provide a local model path.
 
 ### 3. Start Qdrant and Redis
 
@@ -147,7 +159,7 @@ All settings are read from environment variables or `.env`.
 | `LLM_BASE_URL` | `http://localhost:3000/v1` | Base URL of the OpenAI-compatible LLM server |
 | `LLM_MODEL` | `Qwen3-8B-Q4_K_M.gguf` | Model name sent with each request |
 | `LLM_API_KEY` | `not-needed` | API key, if your server requires one |
-| `EMBEDDING_MODEL_PATH` | `./models/bge-m3` | Local path to BGE-M3 |
+| `EMBEDDING_MODEL_PATH` | `BAAI/bge-m3` | Hugging Face model ID or local model path |
 | `EMBEDDING_DIMENSION` | `1024` | Must match the embedding model |
 | `CHUNK_SIZE` | `500` | Characters per chunk |
 | `CHUNK_OVERLAP` | `75` | Characters shared between neighbouring chunks |
@@ -223,6 +235,18 @@ Deletes a document: its vectors in Qdrant, its database record, and the original
 
 Vectors are removed first, so if Qdrant is unavailable the database record and file are left untouched and the delete can be retried. The file is only removed if it sits inside the upload directory.
 
+### `DELETE /documents`
+
+Deletes every uploaded document, using the same cleanup as deleting a single document (vectors, database record, and original file).
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/documents
+```
+
+Documents are deleted one at a time, and a failure on one document does not stop the rest. Each failure is logged, the database session is rolled back after it, and the failed document is reported in the response so it can be retried. The response does not include the underlying exception details; those stay in the server logs. If there are no documents, the request succeeds and nothing is deleted.
+
+This removes all documents and cannot be undone, so use it with care. As with single deletes, a file is only removed from disk if it sits inside the upload directory.
+
 ### `POST /chat`
 
 Send a message. Omit `conversation_id` to start a new conversation, and reuse the returned one to continue it.
@@ -275,6 +299,8 @@ In-progress booking details live in Redis for 24 hours and are only written to t
 | Command | Description |
 | --- | --- |
 | `make help` | List all commands |
+| `make install` | Install project dependencies |
+| `make up` | Start Qdrant and Redis |
 | `make test` | Run the test suite |
 | `make test-verbose` | Run tests with verbose output |
 | `make lint` | Check code with Ruff |
@@ -293,6 +319,14 @@ To create a new migration after changing a model:
 ```bash
 uv run alembic revision --autogenerate -m "describe the change"
 ```
+
+## Testing
+
+```bash
+make test
+```
+
+The suite currently has 76 passing tests. It covers chunking, retrieval, RAG, chat orchestration and the chat API, conversation memory, the booking flow, booking validation and persistence, and the document upload, list, get, and delete endpoints (including bulk deletion with partial failures). Run `make check` to run lint, the migration check, and the tests together.
 
 ## Notes
 
