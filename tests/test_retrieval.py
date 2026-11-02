@@ -93,3 +93,58 @@ async def test_applies_document_filter(monkeypatch):
     assert isinstance(query_filter, models.Filter)
     assert query_filter.must[0].key == "document_id"
     assert query_filter.must[0].match.value == "document-123"
+
+
+@pytest.mark.asyncio
+async def test_searches_all_documents_when_document_id_is_none(monkeypatch):
+    fake_points = [
+        SimpleNamespace(
+            payload={
+                "document_id": "document-123",
+                "filename": "policy.pdf",
+                "chunk_index": 0,
+                "chunk_text": "Employees receive annual leave.",
+                "chunking_strategy": "recursive",
+            },
+            score=0.91,
+        ),
+        SimpleNamespace(
+            payload={
+                "document_id": "document-456",
+                "filename": "handbook.txt",
+                "chunk_index": 3,
+                "chunk_text": "Employees receive sick leave.",
+                "chunking_strategy": "fixed",
+            },
+            score=0.87,
+        ),
+    ]
+
+    fake_query = AsyncMock(
+        return_value=SimpleNamespace(points=fake_points)
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "generate_embeddings",
+        lambda texts: [[0.1] * 1024],
+    )
+    monkeypatch.setattr(
+        retrieval.qdrant_client,
+        "query_points",
+        fake_query,
+    )
+
+    chunks = await retrieval.retrieve_chunks(
+        query="What types of leave do employees receive?",
+        document_id=None,
+    )
+
+    assert len(chunks) == 2
+    assert {chunk["document_id"] for chunk in chunks} == {
+        "document-123",
+        "document-456",
+    }
+
+    query_filter = fake_query.await_args.kwargs["query_filter"]
+    assert query_filter is None

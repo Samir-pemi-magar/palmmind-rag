@@ -84,3 +84,42 @@ async def test_chat_endpoint_validates_request_schema():
         )
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_chat_endpoint_passes_document_id(monkeypatch):
+    conversation_id = "document-chat-123"
+    document_id = "document-456"
+
+    mock_chat = AsyncMock(
+        return_value={
+            "conversation_id": conversation_id,
+            "answer": "The document discusses annual leave.",
+            "sources": [],
+        }
+    )
+
+    monkeypatch.setattr(chat_route, "chat", mock_chat)
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/chat",
+            json={
+                "message": "What does this document say?",
+                "conversation_id": conversation_id,
+                "document_id": document_id,
+            },
+        )
+
+    assert response.status_code == 200
+
+    mock_chat.assert_awaited_once_with(
+        message="What does this document say?",
+        conversation_id=conversation_id,
+        document_id=document_id,
+    )
