@@ -7,8 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.schemas.document import (
     BatchDocumentResponse,
+    DocumentDeleteResponse,
     DocumentIngestionFailure,
     DocumentResponse,
+)
+from app.services.document_management import (
+    delete_document,
+    get_document,
+    list_documents,
 )
 from app.services.ingestion import ingest_document
 
@@ -96,4 +102,67 @@ async def upload_documents(
         total_files=len(uploads),
         successful=successful,
         failed=failed,
+    )
+
+
+@router.get(
+    "",
+    response_model=list[DocumentResponse],
+)
+async def get_documents(
+    db: AsyncSession = Depends(get_db),
+) -> list[DocumentResponse]:
+    """List all uploaded documents, newest first."""
+
+    documents = await list_documents(db)
+
+    return [
+        DocumentResponse.model_validate(document)
+        for document in documents
+    ]
+
+
+@router.get(
+    "/{document_id}",
+    response_model=DocumentResponse,
+)
+async def get_document_details(
+    document_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> DocumentResponse:
+    """Retrieve a document by its ID."""
+
+    document = await get_document(document_id, db)
+
+    if document is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found.",
+        )
+
+    return DocumentResponse.model_validate(document)
+
+
+@router.delete(
+    "/{document_id}",
+    response_model=DocumentDeleteResponse,
+)
+async def remove_document(
+    document_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> DocumentDeleteResponse:
+    """Delete a document and its associated data."""
+
+    document = await delete_document(document_id, db)
+
+    if document is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found.",
+        )
+
+    return DocumentDeleteResponse(
+        message="Document deleted successfully.",
+        document_id=document.id,
+        filename=document.filename,
     )

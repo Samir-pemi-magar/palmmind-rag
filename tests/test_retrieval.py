@@ -1,10 +1,18 @@
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from qdrant_client import models
 
 from app.services import retrieval
+
+
+def mock_embeddings(monkeypatch, result):
+    """Replace the embedding module without loading PyTorch or Transformers."""
+    fake_module = ModuleType("app.core.embeddings")
+    fake_module.generate_embeddings = lambda texts: result
+    monkeypatch.setitem(sys.modules, "app.core.embeddings", fake_module)
 
 
 @pytest.mark.asyncio
@@ -38,11 +46,7 @@ async def test_retrieves_and_formats_chunks(monkeypatch):
     fake_results = SimpleNamespace(points=[fake_point])
     fake_query = AsyncMock(return_value=fake_results)
 
-    monkeypatch.setattr(
-        retrieval,
-        "generate_embeddings",
-        lambda texts: fake_embedding,
-    )
+    mock_embeddings(monkeypatch, fake_embedding)
     monkeypatch.setattr(
         retrieval.qdrant_client,
         "query_points",
@@ -72,11 +76,7 @@ async def test_retrieves_and_formats_chunks(monkeypatch):
 async def test_applies_document_filter(monkeypatch):
     fake_query = AsyncMock(return_value=SimpleNamespace(points=[]))
 
-    monkeypatch.setattr(
-        retrieval,
-        "generate_embeddings",
-        lambda texts: [[0.1] * 1024],
-    )
+    mock_embeddings(monkeypatch, [[0.1] * 1024])
     monkeypatch.setattr(
         retrieval.qdrant_client,
         "query_points",
@@ -124,11 +124,7 @@ async def test_searches_all_documents_when_document_id_is_none(monkeypatch):
         return_value=SimpleNamespace(points=fake_points)
     )
 
-    monkeypatch.setattr(
-        retrieval,
-        "generate_embeddings",
-        lambda texts: [[0.1] * 1024],
-    )
+    mock_embeddings(monkeypatch, [[0.1] * 1024])
     monkeypatch.setattr(
         retrieval.qdrant_client,
         "query_points",

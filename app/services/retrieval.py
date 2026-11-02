@@ -3,7 +3,6 @@ import asyncio
 from qdrant_client import models
 
 from app.core.config import settings
-from app.core.embeddings import generate_embeddings
 from app.core.qdrant import qdrant_client
 
 
@@ -33,6 +32,9 @@ async def retrieve_chunks(
 
     if not 1 <= limit <= 100:
         raise ValueError("top_k must be between 1 and 100.")
+
+    # Load the embedding model only when retrieval needs it.
+    from app.core.embeddings import generate_embeddings
 
     # Generate the query embedding without blocking the async event loop.
     embeddings = await asyncio.to_thread(

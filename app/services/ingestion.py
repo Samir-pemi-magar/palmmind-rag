@@ -7,11 +7,9 @@ from qdrant_client import models
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.embeddings import generate_embeddings
 from app.core.qdrant import qdrant_client
 from app.models.document import Document
 from app.services.chunking import chunk_text
-from app.services.document_extractor import extract_text
 from app.services.document_storage import save_uploaded_document
 
 logger = logging.getLogger(__name__)
@@ -47,7 +45,10 @@ async def ingest_document(
         # 1. Save the original document.
         file_path, stored_filename = await save_uploaded_document(upload)
 
-        # 2. Extract readable text.
+        # 2. Load the PDF/text extractor only when ingestion needs it.
+        from app.services.document_extractor import extract_text
+
+        # Extract readable text.
         extracted_text = extract_text(file_path)
 
         # 3. Divide extracted text into chunks.
@@ -59,7 +60,10 @@ async def ingest_document(
         if not chunks:
             raise ValueError("Document did not produce any text chunks.")
 
-        # 4. Generate BGE-M3 embeddings without blocking the event loop.
+        # 4. Load the embedding model only when ingestion needs it.
+        from app.core.embeddings import generate_embeddings
+
+        # Generate BGE-M3 embeddings without blocking the event loop.
         embeddings = await asyncio.to_thread(generate_embeddings, chunks)
 
         if len(embeddings) != len(chunks):

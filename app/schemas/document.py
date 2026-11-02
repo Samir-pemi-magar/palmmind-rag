@@ -24,3 +24,9 @@ class BatchDocumentResponse(BaseModel):
     total_files: int
     successful: list[DocumentResponse]
     failed: list[DocumentIngestionFailure]
+
+
+class DocumentDeleteResponse(BaseModel):
+    message: str
+    document_id: str
+    filename: str

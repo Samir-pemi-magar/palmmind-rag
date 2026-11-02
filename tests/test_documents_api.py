@@ -162,3 +162,104 @@ async def test_batch_upload_requires_files():
         )
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_list_documents(monkeypatch):
+    documents = [
+        make_document("first.pdf"),
+        make_document("second.txt"),
+    ]
+
+    mock_list = AsyncMock(return_value=documents)
+    monkeypatch.setattr(documents_route, "list_documents", mock_list)
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/documents")
+
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+    assert response.json()[0]["filename"] == "first.pdf"
+    assert response.json()[1]["filename"] == "second.txt"
+    mock_list.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_document_by_id(monkeypatch):
+    document = make_document("policy.pdf")
+
+    mock_get = AsyncMock(return_value=document)
+    monkeypatch.setattr(documents_route, "get_document", mock_get)
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/documents/id-policy.pdf")
+
+    assert response.status_code == 200
+    assert response.json()["filename"] == "policy.pdf"
+
+
+@pytest.mark.asyncio
+async def test_get_document_returns_404_when_missing(monkeypatch):
+    mock_get = AsyncMock(return_value=None)
+    monkeypatch.setattr(documents_route, "get_document", mock_get)
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/documents/nonexistent")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found."
+
+
+@pytest.mark.asyncio
+async def test_delete_document(monkeypatch):
+    document = make_document("policy.pdf")
+
+    mock_delete = AsyncMock(return_value=document)
+    monkeypatch.setattr(documents_route, "delete_document", mock_delete)
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.delete("/documents/id-policy.pdf")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": "Document deleted successfully.",
+        "document_id": "id-policy.pdf",
+        "filename": "policy.pdf",
+    }
+
+
+@pytest.mark.asyncio
+async def test_delete_document_returns_404_when_missing(monkeypatch):
+    mock_delete = AsyncMock(return_value=None)
+    monkeypatch.setattr(documents_route, "delete_document", mock_delete)
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.delete("/documents/nonexistent")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found."
