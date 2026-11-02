@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     debug: bool = True
 
     database_url: str = "sqlite+aiosqlite:///./palmmind.db"
+    upload_dir: str = "./data/uploads"
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "document_chunks"
