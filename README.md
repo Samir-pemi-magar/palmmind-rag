@@ -58,7 +58,7 @@ Booking messages are checked first. Anything that is not booking-related falls t
 ```
 app/
   main.py                    FastAPI app and lifespan (creates the Qdrant collection)
-  api/routes/                HTTP endpoints (documents, chat, health)
+  api/routes/                HTTP endpoints (documents, chat)
   core/
     config.py                Settings loaded from environment variables
     database.py              Async SQLAlchemy engine and session
@@ -114,7 +114,7 @@ make install
 cp .env.example .env
 ```
 
-Review `.env` and ensure `EMBEDDING_MODEL_PATH`, `LLM_BASE_URL`, and `LLM_MODEL` match your environment. You can use `BAAI/bge-m3` to load the model from Hugging Face or provide a local model path.
+Review `.env` and ensure `EMBEDDING_MODEL_PATH`, `LLM_BASE_URL`, and `LLM_MODEL` match your environment. `.env.example` uses `BAAI/bge-m3` to load the model from Hugging Face. If you skip `.env`, the app falls back to a local model at `./models/bge-m3`, so that path must exist.
 
 ### 3. Start Qdrant and Redis
 
@@ -159,7 +159,7 @@ All settings are read from environment variables or `.env`.
 | `LLM_BASE_URL` | `http://localhost:3000/v1` | Base URL of the OpenAI-compatible LLM server |
 | `LLM_MODEL` | `Qwen3-8B-Q4_K_M.gguf` | Model name sent with each request |
 | `LLM_API_KEY` | `not-needed` | API key, if your server requires one |
-| `EMBEDDING_MODEL_PATH` | `BAAI/bge-m3` | Hugging Face model ID or local model path |
+| `EMBEDDING_MODEL_PATH` | `./models/bge-m3` | Hugging Face model ID or local model path. `.env.example` sets `BAAI/bge-m3`, which downloads the model from Hugging Face |
 | `EMBEDDING_DIMENSION` | `1024` | Must match the embedding model |
 | `CHUNK_SIZE` | `500` | Characters per chunk |
 | `CHUNK_OVERLAP` | `75` | Characters shared between neighbouring chunks |
@@ -169,7 +169,14 @@ All settings are read from environment variables or `.env`.
 
 ### `GET /health`
 
-Returns the application status.
+Returns the application status. Defined in `app/main.py`.
+
+```json
+{
+  "status": "healthy",
+  "application": "Palm Mind RAG API"
+}
+```
 
 ### `POST /documents`
 
@@ -245,6 +252,29 @@ curl -X DELETE http://127.0.0.1:8000/documents
 
 Documents are deleted one at a time, and a failure on one document does not stop the rest. Each failure is logged, the database session is rolled back after it, and the failed document is reported in the response so it can be retried. The response does not include the underlying exception details; those stay in the server logs. If there are no documents, the request succeeds and nothing is deleted.
 
+Response (`200`):
+
+```json
+{
+  "total_documents": 2,
+  "deleted_count": 1,
+  "deleted": [
+    {
+      "message": "Document deleted successfully.",
+      "document_id": "0b6f6c9e-6c3a-4a1e-9d57-2f3f6f0a1c11",
+      "filename": "handbook.pdf"
+    }
+  ],
+  "failed": [
+    {
+      "document_id": "7d2e9a40-3b1c-4c55-a8f2-1e6b0c9d4a77",
+      "filename": "faq.txt",
+      "error": "Deletion failed. Check server logs and retry."
+    }
+  ]
+}
+```
+
 This removes all documents and cannot be undone, so use it with care. As with single deletes, a file is only removed from disk if it sits inside the upload directory.
 
 ### `POST /chat`
@@ -280,7 +310,7 @@ Response:
 }
 ```
 
-If nothing relevant is found, the assistant says so and `sources` is empty.
+If nothing relevant is found, the assistant says so and `sources` is empty. A blank `message` or `conversation_id` returns `400`, and a missing or oversized `message` returns `422`.
 
 ## Interview booking flow
 
@@ -326,7 +356,7 @@ uv run alembic revision --autogenerate -m "describe the change"
 make test
 ```
 
-The suite currently has 76 passing tests. It covers chunking, retrieval, RAG, chat orchestration and the chat API, conversation memory, the booking flow, booking validation and persistence, and the document upload, list, get, and delete endpoints (including bulk deletion with partial failures). Run `make check` to run lint, the migration check, and the tests together.
+The suite covers chunking, retrieval, RAG, chat orchestration and the chat API, conversation memory, the booking flow, booking validation and persistence, and the document upload, list, get, and delete endpoints (including bulk deletion with partial failures). Run `make check` to run lint, the migration check, and the tests together.
 
 ## Notes
 
