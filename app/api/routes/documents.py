@@ -96,10 +96,7 @@ async def get_documents(
 
     documents = await list_documents(db)
 
-    return [
-        DocumentResponse.model_validate(document)
-        for document in documents
-    ]
+    return [DocumentResponse.model_validate(document) for document in documents]
 
 
 @router.get(

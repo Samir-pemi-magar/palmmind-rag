@@ -68,6 +68,18 @@ def extraction(
     }
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "I don't want to cancel my interview.",
+        "Please do not cancel my booking.",
+        "I never said to cancel the appointment.",
+    ],
+)
+def test_negative_cancellation_statements_are_not_commands(message):
+    assert booking_service._is_cancellation(message) is False
+
+
 @pytest.mark.asyncio
 async def test_starting_booking_activates_state(
     monkeypatch,
@@ -419,3 +431,163 @@ def test_natural_language_cancellation_is_recognized(message):
 )
 def test_cancellation_questions_are_not_commands(message):
     assert booking_service._is_cancellation(message) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "extractor_error",
+    [
+        ValueError("The booking extractor returned invalid JSON."),
+        ConnectionError("LLM server is unavailable."),
+    ],
+    ids=["malformed-extractor-response", "llm-server-unavailable"],
+)
+async def test_extractor_failure_falls_back_to_rag(
+    monkeypatch,
+    booking_state_store,
+    extractor_error,
+):
+    conversation_id = "booking-extractor-failure"
+
+    original_state = {
+        "booking_active": True,
+        "candidate_name": "Alex Smith",
+    }
+    booking_state_store[conversation_id] = original_state.copy()
+
+    mock_extractor = AsyncMock(side_effect=extractor_error)
+
+    monkeypatch.setattr(
+        booking_service,
+        "extract_booking_details",
+        mock_extractor,
+    )
+
+    result = await booking_service.handle_booking_message(
+        message="What is the refund policy?",
+        conversation_id=conversation_id,
+    )
+
+    assert result is None
+    assert booking_state_store[conversation_id] == original_state
+    mock_extractor.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ordinary_question_skips_booking_extractor(
+    monkeypatch,
+    booking_state_store,
+):
+    mock_extractor = AsyncMock()
+
+    monkeypatch.setattr(
+        booking_service,
+        "extract_booking_details",
+        mock_extractor,
+    )
+
+    result = await booking_service.handle_booking_message(
+        message="What is the refund policy?",
+        conversation_id="ordinary-question",
+    )
+
+    assert result is None
+    mock_extractor.assert_not_awaited()
+    assert "ordinary-question" not in booking_state_store
+
+
+@pytest.mark.asyncio
+async def test_explicit_booking_request_calls_extractor(
+    monkeypatch,
+    booking_state_store,
+):
+    mock_extractor = AsyncMock(return_value=extraction())
+
+    monkeypatch.setattr(
+        booking_service,
+        "extract_booking_details",
+        mock_extractor,
+    )
+
+    result = await booking_service.handle_booking_message(
+        message="I want to book an interview.",
+        conversation_id="explicit-booking",
+    )
+
+    mock_extractor.assert_awaited_once()
+    assert result["answer"] == "What is your full name?"
+    assert booking_state_store["explicit-booking"]["booking_active"] is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "yes",
+        "Yes, confirm and save it",
+        "sure",
+        "okay",
+        "sounds good",
+        "go ahead and save it",
+    ],
+)
+def test_natural_confirmation_phrases_are_accepted(message):
+    assert booking_service._is_confirmation(message) is True
+
+
+@pytest.mark.parametrize("message", ["no", "no thanks", "stop"])
+def test_bare_cancellation_requires_pending_confirmation(message):
+    assert (
+        booking_service._is_cancellation(
+            message,
+            awaiting_confirmation=False,
+        )
+        is False
+    )
+
+    assert (
+        booking_service._is_cancellation(
+            message,
+            awaiting_confirmation=True,
+        )
+        is True
+    )
+
+
+def test_explicit_cancellation_works_before_confirmation():
+    assert (
+        booking_service._is_cancellation(
+            "Please cancel my interview",
+            awaiting_confirmation=False,
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_bare_no_does_not_cancel_booking_before_confirmation(
+    monkeypatch,
+    booking_state_store,
+):
+    conversation_id = "booking-no-before-confirmation"
+
+    original_state = {
+        "booking_active": True,
+        "candidate_name": "Alex Smith",
+    }
+    booking_state_store[conversation_id] = original_state.copy()
+
+    mock_extractor = AsyncMock(return_value=extraction(booking_intent=False))
+    monkeypatch.setattr(
+        booking_service,
+        "extract_booking_details",
+        mock_extractor,
+    )
+
+    result = await booking_service.handle_booking_message(
+        message="no",
+        conversation_id=conversation_id,
+    )
+
+    assert result is None
+    assert booking_state_store[conversation_id] == original_state
+    mock_extractor.assert_awaited_once()

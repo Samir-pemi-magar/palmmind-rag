@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 async def list_documents(db: AsyncSession) -> list[Document]:
     """Return all uploaded documents, newest first."""
 
-    result = await db.execute(
-        select(Document).order_by(Document.created_at.desc())
-    )
+    result = await db.execute(select(Document).order_by(Document.created_at.desc()))
 
     return list(result.scalars().all())
 

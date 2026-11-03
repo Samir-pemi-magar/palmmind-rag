@@ -120,9 +120,7 @@ async def test_searches_all_documents_when_document_id_is_none(monkeypatch):
         ),
     ]
 
-    fake_query = AsyncMock(
-        return_value=SimpleNamespace(points=fake_points)
-    )
+    fake_query = AsyncMock(return_value=SimpleNamespace(points=fake_points))
 
     mock_embeddings(monkeypatch, [[0.1] * 1024])
     monkeypatch.setattr(

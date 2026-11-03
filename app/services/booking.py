@@ -1,3 +1,4 @@
+import logging
 import re
 from zoneinfo import ZoneInfo
 
@@ -15,6 +16,9 @@ from app.services.booking_validation import (
     validate_candidate_email,
 )
 
+logger = logging.getLogger(__name__)
+
+
 REQUIRED_FIELDS = (
     "candidate_name",
     "candidate_email",
@@ -31,12 +35,16 @@ def _normalize_message(message: str) -> str:
 
 
 def _is_confirmation(message: str) -> bool:
-    """Recognize an explicit, standalone confirmation."""
+    """Recognize natural, affirmative booking confirmations."""
+
+    normalized = _normalize_message(message)
 
     confirmations = {
         "yes",
+        "yeah",
+        "yep",
+        "yes please",
         "yes confirm",
-        "yes, confirm",
         "confirm",
         "confirmed",
         "i confirm",
@@ -45,21 +53,47 @@ def _is_confirmation(message: str) -> bool:
         "correct",
         "book it",
         "save it",
+        "please save it",
         "proceed",
         "go ahead",
+        "go ahead and save it",
+        "sure",
+        "sure thing",
+        "okay",
+        "ok",
+        "sounds good",
+        "looks good",
+        "that's fine",
+        "that is fine",
+        "please do",
     }
 
-    return _normalize_message(message) in confirmations
+    if normalized in confirmations:
+        return True
+
+    return bool(
+        re.fullmatch(
+            r"(yes|yeah|yep|sure|okay|ok)"
+            r"(,?\s+(please|confirm|save it|go ahead|proceed))*"
+            r"(,?\s+and\s+(confirm|save it|proceed))?",
+            normalized,
+        )
+    )
 
 
-def _is_cancellation(message: str) -> bool:
-    """Recognize explicit cancellation commands without matching questions."""
+def _is_cancellation(
+    message: str,
+    awaiting_confirmation: bool = False,
+) -> bool:
+    """Recognize explicit cancellation without misclassifying ordinary answers."""
 
     normalized = _normalize_message(message)
 
+    # A bare negative response only cancels after the booking summary.
+    if normalized in {"no", "no thanks", "no thank you", "stop"}:
+        return awaiting_confirmation
+
     cancellations = {
-        "no",
-        "no thanks",
         "cancel",
         "cancel it",
         "cancel booking",
@@ -70,32 +104,59 @@ def _is_cancellation(message: str) -> bool:
         "cancel the interview booking",
         "never mind",
         "nevermind",
-        "stop",
     }
 
     if normalized in cancellations:
         return True
 
-    # Match explicit cancellation requests in natural language.
-    # Do not treat questions about cancellation as cancellation commands.
+    # Do not interpret questions about cancellation as cancellation commands.
     if "?" in message:
         return False
 
+    # Do not treat negative statements as cancellation commands.
+    if re.search(
+        r"\b(?:don't|do not|never|not)\b.{0,40}\b(cancel|cancelled|canceled|stop)\b",
+        normalized,
+    ):
+        return False
+
     return bool(
-        re.search(
-            r"\b(cancel|cancelled|canceled|stop)\b",
-            normalized,
-        )
+        re.search(r"\b(cancel|cancelled|canceled|stop)\b", normalized)
         and re.search(
             r"\b(booking|interview|appointment|it|request)\b",
             normalized,
         )
-        and re.search(
-            r"\b(i changed my mind|i want to|i would like to|"
-            r"please|i need to|just|the)\b",
-            normalized,
-        )
     )
+
+
+def _looks_like_booking_request(message: str) -> bool:
+    """Identify likely new interview-booking requests without calling the LLM."""
+
+    normalized = " ".join(message.lower().split())
+
+    booking_phrases = (
+        "book an interview",
+        "book interview",
+        "schedule an interview",
+        "schedule interview",
+        "arrange an interview",
+        "arrange interview",
+        "interview appointment",
+        "appointment for an interview",
+        "reschedule my interview",
+        "reschedule an interview",
+        "change my interview",
+        "change my booking",
+        "modify my interview",
+        "modify my booking",
+        "update my interview",
+        "i want an interview",
+        "i need an interview",
+        "i would like an interview",
+        "i'd like an interview",
+    )
+
+    return any(phrase in normalized for phrase in booking_phrases)
 
 
 def _missing_fields(state: dict) -> list[str]:
@@ -185,8 +246,12 @@ async def handle_booking_message(
 
     booking_active = state.get("booking_active", False)
 
-    # Cancellation is allowed at every stage of an active booking.
-    if booking_active and _is_cancellation(message):
+    # Explicit cancellation is allowed at every stage.
+    # A standalone "no" only cancels while awaiting confirmation.
+    if booking_active and _is_cancellation(
+        message,
+        awaiting_confirmation=state.get("awaiting_confirmation", False),
+    ):
         await clear_booking_state(conversation_id)
 
         return {
@@ -222,12 +287,24 @@ async def handle_booking_message(
                     "sources": [],
                 }
 
+    # Skip the booking LLM call for ordinary messages when no booking is active.
+    # Active bookings still use extraction to recognize short answers and corrections.
+    if not booking_active and not _looks_like_booking_request(message):
+        return None
+
     # Ask Qwen to extract information from the latest message.
     # Existing Redis state gives context to short replies.
-    extracted = await extract_booking_details(
-        message,
-        current_state=state,
-    )
+    try:
+        extracted = await extract_booking_details(
+            message,
+            current_state=state,
+        )
+    except Exception:
+        logger.exception(
+            "Booking extraction failed for conversation %s; falling back to RAG.",
+            conversation_id,
+        )
+        return None
 
     # Ordinary questions should continue to the RAG service.
     if not extracted["booking_intent"]:

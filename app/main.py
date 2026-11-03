@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
@@ -24,7 +25,32 @@ async def lifespan(app: FastAPI):
     await close_redis()
 
 
-app = FastAPI(
+class CustomFastAPI(FastAPI):
+    def openapi(self) -> dict[str, Any]:
+        if self.openapi_schema:
+            return self.openapi_schema
+
+        openapi_schema = get_openapi(
+            title=self.title,
+            version=self.version,
+            routes=self.routes,
+            openapi_version="3.0.3",
+        )
+
+        batch_schema = openapi_schema["components"]["schemas"][
+            "Body_upload_documents_documents_post"
+        ]
+
+        upload_items = batch_schema["properties"]["uploads"]["items"]
+
+        upload_items.pop("contentMediaType", None)
+        upload_items["format"] = "binary"
+
+        self.openapi_schema = openapi_schema
+        return openapi_schema
+
+
+app = CustomFastAPI(
     title=settings.app_name,
     version=settings.app_version,
     lifespan=lifespan,
@@ -32,32 +58,6 @@ app = FastAPI(
 
 app.include_router(documents_router)
 app.include_router(chat_router)
-
-def custom_openapi():
-    if app.openapi_schema:
-        return app.openapi_schema
-
-    openapi_schema = get_openapi(
-        title=app.title,
-        version=app.version,
-        routes=app.routes,
-        openapi_version="3.0.3",
-    )
-
-    batch_schema = openapi_schema["components"]["schemas"][
-        "Body_upload_documents_documents_post"
-    ]
-
-    upload_items = batch_schema["properties"]["uploads"]["items"]
-
-    upload_items.pop("contentMediaType", None)
-    upload_items["format"] = "binary"
-
-    app.openapi_schema = openapi_schema
-    return app.openapi_schema
-
-
-app.openapi = custom_openapi
 
 
 @app.get("/health", tags=["Health"])

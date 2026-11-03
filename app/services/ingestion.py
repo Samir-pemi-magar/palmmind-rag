@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import UploadFile
 from qdrant_client import models
@@ -39,7 +39,7 @@ async def ingest_document(
         raise ValueError("Uploaded file must have a filename.")
 
     file_path = None
-    point_ids = []
+    point_ids: list[int | str | UUID] = []
 
     try:
         # 1. Save the original document.
